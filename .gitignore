@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# Mojo / Compiled
+*.dylib
+*.so
+*.o
+*.a
+dna_ecc/
+mojo_core/__pycache__/
+
+# Weights & Biases
+wandb/
+
+# Environment / Secret
+.env
+.netrc
+
+# Models
+model/*.pth
+model/checkpoints/
+
+# Data (Ignore contents but keep dirs)
+data/*
+# macOS
+.DS_Store
+
+# Temporary / OS
+*.swp
+*.swo
+*~
+.tmp/
