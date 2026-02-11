@@ -9,25 +9,25 @@ StegaDNA is a high-performance steganography engine designed to "stamp" any medi
 ## 🚀 Key Features
 
 - **Indestructible DNA**: Uses **Reed-Solomon ECC** implemented in **Mojo** with SIMD optimizations to recover signatures even from partially destroyed media.
-- **Adversarial Robustness**: Neural networks trained against a differentiable **Noise Layer** to survive screenshots ("The Print-Scan Attack"), JPEG compression, and cropping.
-- **Universal Gateway**: A unified **FastAPI** controller that routes traffic to specialized modality engines (CNNs for images, Transformers for audio).
+- **The Analog Hole (v4 Breakthrough)**: Specialized **Multi-Scale Inception Kernels** and a **Dense Bit Projection Network** allow DNA survival under real-world capture conditions (phone cameras, print-and-scan) while maintaining high visual fidelity (20+ dB PSNR).
+- **Adversarial Robustness**: Neural networks trained against a differentiable **Noise Layer** (Geometric warping, color jitter, variable blur) to survive digital and physical attacks.
+- **Universal Gateway**: A unified **FastAPI** controller that routes traffic to specialized modality engines.
 - **Mac Optimized**: Native **MPS (Metal Performance Shaders)** support for lightning-fast training on Apple Silicon.
-- **Production Monitoring**: Real-time metric tracking (PSNR, BER, Loss) via **Weights & Biases**.
+- **Research-Driven**: Fully documented architectural evolutions and training experiments available in [research.md](./research.md).
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture (v4 Multi-Scale)
 
 ```text
-Media Input ───► [ Universal Controller ] ───► [ Mojo DNA Core ]
-                          │                        │ (ECC & Hashing)
-                          ▼                        ▼
-                 [ Neural Engine ] ◄─────── [ 128-bit DNA ]
-                 (PyTorch Encoder)
-                          │
-                          ▼
-                 [ Stamped Output ]
+Media Input ───► [ Multi-Scale Encoder ] ───► [ Noise Layer V3 ] ───► [ High-Entropy Decoder ]
+                          ▲                   (Analog Distortion)              │
+                          │                                                    │
+                 [ 128-bit DNA Bits ] <────────────────────────────────────────┘
+                  (Dense Projection)
 ```
+
+The v4 architecture utilizes a U-Net style Encoder with triple-path kernels (3x3, 5x5, 7x7) to capture and hide data across multiple spatial frequencies, suppressing the "foggy blob" artifacts common in earlier deep steganography models.
 
 ---
 
@@ -82,9 +82,10 @@ uv run python main.py
 - [x] **Phase 1**: Mojo Reed-Solomon Core (SIMD Optimized).
 - [x] **Phase 2**: Universal FastAPI Gateway & Modality Routing.
 - [x] **Phase 3**: Adversarial Training Pipeline (MPS Enabled).
-- [ ] **Phase 4**: STFT-Transformer Engine for Audio Watermarking.
-- [ ] **Phase 5**: LLM Logit Processor for Text DNA.
-- [ ] **Phase 6**: ONNX Export for Edge Deployment.
+- [x] **Phase 4**: **Analog Hole Survival** (Multi-Scale Pivot).
+- [ ] **Phase 5**: STFT-Transformer Engine for Audio Watermarking.
+- [ ] **Phase 6**: LLM Logit Processor for Text DNA.
+- [ ] **Phase 7**: ONNX Export for Edge Deployment.
 
 ---
 
