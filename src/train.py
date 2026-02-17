@@ -45,8 +45,8 @@ class TrainConfig(BaseModel):
     payload_bits: int = 128
     image_size: int = 256
     device: str = "mps" if torch.backends.mps.is_available() else "cpu"
-    tsv_path: str = "/Users/antonvice/Documents/programming/StegaDNA/data/text/150k_msgs_sample_hashed_pii.tsv"
-    image_dir: str = "/Users/antonvice/Documents/programming/StegaDNA/data/images"
+    tsv_path: str = "data/text/150k_msgs_sample_hashed_pii.tsv"
+    image_dir: str = "data/images"
     resume_path: Optional[str] = None
     mixed_precision: bool = False
     tag: str = "default"
@@ -323,8 +323,12 @@ class StegaTrainer:
             
             if avg_ber < best_ber:
                 best_ber = avg_ber
+                # Global Best
                 torch.save(self.model.state_dict(), "model/stegadna_best.pth")
-                logger.info(f"New Best Model Saved (BER: {best_ber:.4f})")
+                # Tag-specific Best (for publication/run tracking)
+                tag_best_path = os.path.join(self.checkpoint_dir, "best_model.pth")
+                torch.save(self.model.state_dict(), tag_best_path)
+                logger.info(f"New Best Model Saved (BER: {best_ber:.4f}) at {tag_best_path}")
                 
             # Log sample images
             self.log_samples(epoch)

@@ -26,6 +26,7 @@ wandb/
 # Models
 model/*.pth
 model/checkpoints/
+model/best_archive/*
 
 # Data (Ignore contents but keep dirs)
 data/*
