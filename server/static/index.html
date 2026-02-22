@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StegaDNA - Invisible Encryption</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --neon-blue: #00f2ff;
+            --neon-purple: #7000ff;
+            --bg-dark: #0a0b10;
+            --glass: rgba(255, 255, 255, 0.05);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg-dark);
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        .background-glow {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at 50% 50%, rgba(112, 0, 255, 0.15), transparent 70%);
+            z-index: -1;
+        }
+
+        nav {
+            width: 100%;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5rem;
+            letter-spacing: 4px;
+            background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 2rem;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: var(--neon-blue);
+        }
+
+        h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            color: var(--neon-blue);
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 1rem;
+            color: #fff;
+            font-family: inherit;
+            outline: none;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-label:hover {
+            border-color: var(--neon-purple);
+            background: rgba(112, 0, 255, 0.05);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border-radius: 10px;
+            border: none;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, var(--neon-blue), var(--neon-purple));
+            color: #fff;
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .result-area {
+            margin-top: 1.5rem;
+            text-align: center;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        #encImage,
+        #decPreview {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            margin-top: 1rem;
+            color: #0f0;
+            display: none;
+        }
+
+        .loader {
+            border: 3px solid #f3f3f31a;
+            border-top: 3px solid var(--neon-blue);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="background-glow"></div>
+    <nav>
+        <h1>StegaDNA Core</h1>
+    </nav>
+
+    <div class="container">
+        <!-- Encoder Section -->
+        <div class="card">
+            <h2>DNA Encoder</h2>
+            <div class="input-group">
+                <label>Target File</label>
+                <label for="encFileInput" class="file-label" id="encFileLabel">
+                    Click to Upload Image
+                </label>
+                <input type="file" id="encFileInput" accept="image/*">
+            </div>
+            <div class="input-group">
+                <label>Text Payload (DNA)</label>
+                <textarea id="payloadText" placeholder="Confidential digital signature..." rows="3"></textarea>
+            </div>
+            <button class="btn btn-primary" id="btnEncode">Execute Stamping</button>
+            <div class="result-area">
+                <div class="loader" id="encLoader"></div>
+                <img id="encImage" alt="Encoded image">
+                <a id="downloadLink"
+                    style="display: none; margin-top: 10px; color: var(--neon-blue); text-decoration: none;">Download
+                    Stamped Image</a>
+            </div>
+        </div>
+
+        <!-- Decoder Section -->
+        <div class="card">
+            <h2>DNA Decoder</h2>
+            <div class="input-group">
+                <label>Captured Evidence</label>
+                <label for="decFileInput" class="file-label" id="decFileLabel">
+                    Click to Upload Image
+                </label>
+                <input type="file" id="decFileInput" accept="image/*">
+            </div>
+            <button class="btn btn-primary" id="btnDecode">Recover DNA</button>
+            <div class="result-area">
+                <div class="loader" id="decLoader"></div>
+                <div id="decResult"
+                    style="padding: 1rem; overflow-wrap: break-word; font-family: monospace; color: var(--neon-blue);">
+                </div>
+                <img id="decPreview" alt="Decoded preview">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = ""; // Current host
+
+        // Encoder UI logic
+        document.getElementById('encFileInput').onchange = (e) => {
+            document.getElementById('encFileLabel').innerText = e.target.files[0].name;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.getElementById('encImage');
+                img.src = event.target.result;
+                img.style.display = 'block';
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        document.getElementById('btnEncode').onclick = async () => {
+            const file = document.getElementById('encFileInput').files[0];
+            const text = document.getElementById('payloadText').value;
+            if (!file || !text) return alert("Please provide both image and text.");
+
+            const loader = document.getElementById('encLoader');
+            const imgEl = document.getElementById('encImage');
+            const dl = document.getElementById('downloadLink');
+
+            loader.style.display = 'block';
+            imgEl.style.opacity = '0.3';
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('user_id', text); // text is passed as user_id for bit generation
+
+            try {
+                const res = await fetch(`${API_URL}/stamp/image`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    const errorJson = await res.json();
+                    throw new Error(errorJson.message || "Encoding Failed");
+                }
+
+                const blob = await res.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+
+                imgEl.src = blobUrl;
+                imgEl.style.display = 'block';
+                imgEl.style.opacity = '1';
+
+                dl.href = blobUrl;
+                dl.download = "stamped_dna.png";
+                dl.style.display = 'block';
+            } catch (err) {
+                console.error(err);
+                alert("Operation Failed: " + err.message);
+            } finally {
+                loader.style.display = 'none';
+            }
+        };
+
+        // Decoder UI logic
+        document.getElementById('decFileInput').onchange = (e) => {
+            document.getElementById('decFileLabel').innerText = e.target.files[0].name;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.getElementById('decPreview');
+                img.src = event.target.result;
+                img.style.display = 'block';
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        document.getElementById('btnDecode').onclick = async () => {
+            const file = document.getElementById('decFileInput').files[0];
+            if (!file) return alert("Please upload an image to decode.");
+
+            const loader = document.getElementById('decLoader');
+            const resultDiv = document.getElementById('decResult');
+
+            loader.style.display = 'block';
+            resultDiv.innerText = "";
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch(`${API_URL}/extract/image`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const json = await res.json();
+
+                if (json.status === 'success') {
+                    resultDiv.innerHTML = `<strong>Recovered Payload:</strong><br><br><span style="font-size: 1.2rem">${json.text}</span>`;
+                } else {
+                    alert("Extraction Failed: " + json.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Server Communication Error.");
+            } finally {
+                loader.style.display = 'none';
+            }
+        };
+    </script>
+</body>
+
+</html>

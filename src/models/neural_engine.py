@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import kornia
+import numpy as np
 class MultiScaleResBlock(nn.Module):
     """
     Bio-inspired Multi-scale Residual Block (Inception-style).
@@ -31,7 +32,7 @@ class MultiScaleResBlock(nn.Module):
         
         # Fusion layer
         self.fuse = nn.Conv2d(mid_channels * 3, in_channels, 1)
-        self.bn = nn.BatchNorm2d(in_channels)
+        self.bn = nn.InstanceNorm2d(in_channels)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -52,10 +53,10 @@ class ResBlock(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, in_channels, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.bn1 = nn.InstanceNorm2d(in_channels)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv2d(in_channels, in_channels, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(in_channels)
+        self.bn2 = nn.InstanceNorm2d(in_channels)
 
     def forward(self, x):
         residual = x
@@ -181,20 +182,50 @@ class EncoderV3(nn.Module):
         stego_residual = self.final_conv(combined)
         return image + self.stego_strength * stego_residual
 
+class SpatialTransformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Localization network to find affine transform
+        self.localization = nn.Sequential(
+            nn.Conv2d(3, 8, kernel_size=7),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(8, 10, kernel_size=5),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True)
+        )
+        self.fc_loc = nn.Sequential(
+            nn.Linear(10 * 60 * 60, 32), # 60x60 is for 256x256 input
+            nn.ReLU(True),
+            nn.Linear(32, 3 * 2)
+        )
+        # Initialize with identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+
+    def forward(self, x):
+        xs = self.localization(x)
+        xs = xs.view(-1, 10 * 60 * 60)
+        theta = self.fc_loc(xs)
+        theta = theta.view(-1, 2, 3)
+        grid = F.affine_grid(theta, x.size(), align_corners=False)
+        return F.grid_sample(x, grid, align_corners=False)
+
 class DecoderV3(nn.Module):
     """
-    Multi-scale Decoder for robust signal extraction under Analog warping.
+    Multi-scale Decoder with Spatial Transformer for robust signal extraction under Analog warping.
     """
     def __init__(self, payload_bits=128):
         super().__init__()
+        self.stn = SpatialTransformer()
         self.layers = nn.Sequential(
             nn.Conv2d(3, 64, 3, padding=1),
             MultiScaleResBlock(64),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), # 128
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
             MultiScaleResBlock(128),
-            nn.Conv2d(128, 256, 3, stride=2, padding=1), # 64
+            nn.Conv2d(128, 256, 3, stride=2, padding=1),
             MultiScaleResBlock(256),
-            nn.Conv2d(256, 512, 3, stride=2, padding=1), # 32
+            nn.Conv2d(256, 512, 3, stride=2, padding=1),
             MultiScaleResBlock(512),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten()
@@ -206,6 +237,7 @@ class DecoderV3(nn.Module):
         )
 
     def forward(self, x):
+        x = self.stn(x) # Align image first
         features = self.layers(x)
         return self.fc(features)
 
@@ -216,7 +248,7 @@ class NoiseLayerV2(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, x, intensity=1.0):
+    def forward(self, x, intensity=1.0, bypass_clamping=True):
         if not self.training or intensity == 0:
             return x
             
@@ -224,13 +256,12 @@ class NoiseLayerV2(nn.Module):
         x = x + torch.randn_like(x) * (0.02 * intensity)
         
         # 2. Random Dropout
-        prob = 1.0 - (0.1 * intensity) # More dropped as intensity goes up
+        prob = 1.0 - (0.1 * intensity)
         mask = torch.bernoulli(torch.full_like(x, prob))
-        if x.is_cuda or x.device.type == "mps":
-             mask = mask.to(x.device)
+        mask = mask.to(x.device)
         x = x * mask
         
-        # 3. Mild JPEG-like blur (only at higher intensity)
+        # 3. Mild JPEG-like blur
         if intensity > 0.5:
             x = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
         
@@ -244,44 +275,33 @@ class NoiseLayerV3(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, x, intensity=1.0):
-        if not self.training or intensity == 0:
+    def forward(self, x, intensity=1.0, bypass_clamping=True): # Allow bypass for normalized data
+        if intensity == 0:
             return x
         
         B, C, H, W = x.shape
         device = x.device
 
-        # --- 1. Geometric Perspective / Rotation ---
-        # We simulate a "Phone Camera Angle" by slightly warping the target
+        # --- 1. Geometric Perspective / Rotation via Kornia ---
         if intensity > 0.3:
-            # Scale of distortion based on intensity
-            mag = 0.05 * intensity 
-            src_points = torch.tensor([[0, 0], [W-1, 0], [W-1, H-1], [0, H-1]], dtype=torch.float32, device=device).unsqueeze(0).repeat(B, 1, 1)
+            # We use kornia to apply robust geometric distortions similar to StegaStamp
+            import kornia.augmentation as K
+            distortion_scale = min(0.5, 0.2 * intensity)
             
-            # Add random jitter to corners
-            dst_points = src_points + torch.randn_like(src_points) * (mag * W)
-            
-            # Simple Affine/Perspective Approximation using F.grid_sample
-            # Note: For full robustness we'd use kornia, but here we do random crop/rescale jitter
-            scale = 1.0 - (0.05 * torch.rand(B, device=device) * intensity)
-            angle = (torch.rand(B, device=device) - 0.5) * 2 * (5 * intensity) # +/- 5 degrees
-            
-            # Generate dummy grid for small rotation/scale jitter
-            theta = torch.zeros(B, 2, 3, device=device)
-            theta[:, 0, 0] = torch.cos(angle * 3.1415/180) * scale
-            theta[:, 0, 1] = -torch.sin(angle * 3.1415/180) * scale
-            theta[:, 1, 0] = torch.sin(angle * 3.1415/180) * scale
-            theta[:, 1, 1] = torch.cos(angle * 3.1415/180) * scale
-            
-            grid = F.affine_grid(theta, x.size(), align_corners=False)
-            x = F.grid_sample(x, grid, align_corners=False)
+            aug_list = K.AugmentationSequential(
+                K.RandomPerspective(distortion_scale=distortion_scale, p=1.0),
+                K.RandomRotation(degrees=10.0 * intensity, p=1.0),
+                K.RandomResizedCrop(size=(H, W), scale=(0.8, 1.0), p=1.0)
+            )
+            x = aug_list(x)
 
         # --- 2. Color Jitter (Simulate Camera Sensor Tuning) ---
         if intensity > 0.2:
             brightness = 1.0 + (torch.randn(B, 1, 1, 1, device=device) * 0.1 * intensity)
             contrast = 1.0 + (torch.randn(B, 1, 1, 1, device=device) * 0.1 * intensity)
             x = (x * contrast) * brightness
-            x = torch.clamp(x, 0, 1)
+            if not bypass_clamping:
+                x = torch.clamp(x, 0, 1)
 
         # --- 3. Combined Noise & Blur ---
         # Simulating CMOS sensor noise + low light
@@ -292,6 +312,8 @@ class NoiseLayerV3(nn.Module):
             k = 3 if intensity < 0.8 else 5
             x = F.avg_pool2d(x, kernel_size=k, stride=1, padding=k//2)
 
+        if bypass_clamping:
+            return x
         return torch.clamp(x, 0, 1)
 
 class StegaDNAEngine(nn.Module):
@@ -301,8 +323,8 @@ class StegaDNAEngine(nn.Module):
         self.decoder = DecoderV3(payload_bits)
         self.noise_layer = NoiseLayerV3() if use_v3_noise else NoiseLayerV2()
 
-    def forward(self, image, payload, noise_intensity=1.0):
+    def forward(self, image, payload, noise_intensity=1.0, bypass_clamping=True):
         stego = self.encoder(image, payload)
-        noised_stego = self.noise_layer(stego, intensity=noise_intensity)
+        noised_stego = self.noise_layer(stego, intensity=noise_intensity, bypass_clamping=bypass_clamping)
         recovered_bits = self.decoder(noised_stego)
         return stego, recovered_bits

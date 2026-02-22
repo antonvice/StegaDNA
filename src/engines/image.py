@@ -1,4 +1,5 @@
 import torch
+import os
 from PIL import Image
 from torchvision import transforms
 from src.models.neural_engine import StegaDNAEngine
@@ -52,13 +53,14 @@ async def embed(file, dna_bits):
     # Convert back to PIL
     stamped_img = _unnormalize(stamped_tensor.squeeze(0))
     stamped_pil = transforms.ToPILImage()(stamped_img.cpu())
-    stamped_pil = stamped_pil.resize(orig_size) # Restore size
     
-    # Save to buffer
+    # We resize back to original size for the user
+    stamped_pil = stamped_pil.resize(orig_size, Image.LANCZOS)
+    
+    # Save to buffer as high-quality PNG
     img_byte_arr = io.BytesIO()
-    stamped_pil.save(img_byte_arr, format='PNG')
-    
-    return {"status": "success", "modality": "image", "data": img_byte_arr.getvalue().hex()[:100] + "..." }
+    stamped_pil.save(img_byte_arr, format='PNG', optimize=True)
+    return img_byte_arr.getvalue()
 
 async def extract(file):
     if _engine is None: return {"status": "error", "message": "Model not loaded"}
@@ -72,4 +74,22 @@ async def extract(file):
     
     # Convert logits to binary string
     bits = (torch.sigmoid(recovered_bits) > 0.5).int().tolist()[0]
-    return {"status": "success", "modality": "image", "dna_vector": bits}
+    
+    # Attempt to decode text from bits using RS
+    import reedsolo
+    byte_list = []
+    for i in range(0, 128, 8):
+        byte = 0
+        for j in range(8):
+            if bits[i+j]:
+                byte |= (1 << j)
+        byte_list.append(byte)
+    
+    try:
+        rs = reedsolo.RSCodec(6)
+        decoded_bytes = rs.decode(bytes(byte_list))[0]
+        text = decoded_bytes.decode('utf-8', errors='ignore').strip('\x00')
+    except Exception as e:
+        text = "[RS DECODE FAILED - TOO MUCH NOISE]"
+
+    return {"status": "success", "modality": "image", "text": text, "bits": bits}

@@ -59,21 +59,23 @@ Compile the high-performance Reed-Solomon module:
 uv run mojo build mojo_core/ecc.mojo --emit shared-lib -o dna_ecc.dylib
 ```
 
-### 3. Training
+### 3. Training (Robust V5)
 
-Launch the adversarial training loop:
+Launch the robust **StegaStamp** adversarial training loop which uses InstanceNorm and STN for camera-angle survival:
 
 ```bash
-uv run python src/train.py
+bash train_stegastamp.sh
 ```
 
-### 4. Serve the API
+### 4. Serve the API & Interactive Dashboard
 
-Run the universal gateway:
+Run the universal gateway and access the premium web dashboard:
 
 ```bash
 uv run python main.py
 ```
+
+Then navigate to: [http://localhost:8000](http://localhost:8000)
 
 ---
 

@@ -33,7 +33,7 @@ from torchvision.models import vgg16, VGG16_Weights # Added for VGG perceptual l
 # Load environment variables (WANDB_API_KEY, etc.)
 load_dotenv()
 
-from src.data.loader import get_stega_dataloader
+from src.data.loader import get_stega_dataloaders
 from src.models.neural_engine import StegaDNAEngine
 
 class TrainConfig(BaseModel):
@@ -88,12 +88,13 @@ class StegaTrainer:
         )
         
         # 2. Data
-        self.loader = get_stega_dataloader(
+        self.loader, self.val_loader = get_stega_dataloaders(
             tsv_path=config.tsv_path,
             image_dir=config.image_dir,
             batch_size=config.batch_size,
             image_size=config.image_size,
             payload_bits=config.payload_bits,
+            val_ratio=0.1,
             num_workers=4
         )
         
@@ -192,9 +193,15 @@ class StegaTrainer:
             self.global_step += 1
             images, bits = images.to(self.device), bits.to(self.device)
             
-            # Curriculum Learning: Gradually increase noise intensity from 0 starting at current run.
-            # This allows the model to re-align with the signal before the new noise type takes full effect.
-            noise_intensity = min(1.0, (epoch - (self.start_epoch - 1)) / max(1, self.config.curriculum_epochs))
+            # Curriculum Learning: Gradually increase noise intensity
+            base_intensity = 1.0 # FORCE 1.0 TO TEST IF BER RETURNS TO 0.24
+            
+            # STOCHASTIC CHANNEL DROPOUT (Novelty: Universal Decoder Tuning)
+            # For 10% of batches, we force noise to 0 to ensure the model remains 'Digital-Clean' compatible.
+            if self.model.training and torch.rand(1).item() < 0.1:
+                noise_intensity = 0.0
+            else:
+                noise_intensity = base_intensity
             
             self.optimizer.zero_grad(set_to_none=True)
             
@@ -298,37 +305,76 @@ class StegaTrainer:
             
         return np.mean(epoch_losses), np.mean(epoch_bers), np.mean(epoch_psnrs)
 
+    def validate(self, epoch):
+        self.model.eval()
+        epoch_losses, epoch_bers, epoch_psnrs = [], [], []
+        
+        logger.info(f"Running Validation for Epoch {epoch}...")
+        with torch.no_grad():
+            for images, bits in tqdm(self.val_loader, desc=f"Validating E{epoch}"):
+                images, bits = images.to(self.device), bits.to(self.device)
+                
+                # We validate with full noise to check physical robustness
+                stego, recovered_bits = self.model(images, bits, noise_intensity=1.0)
+                
+                # Image Loss
+                loss_img = self.criterion_img(stego, images)
+                # Bit Loss
+                loss_bits = self.criterion_bits(recovered_bits, bits)
+                
+                total_loss = loss_img + self.config.lambda_bits * loss_bits
+                
+                epoch_losses.append(total_loss.item())
+                epoch_bers.append(calculate_ber(recovered_bits, bits))
+                epoch_psnrs.append(calculate_psnr(images, stego))
+        
+        return np.mean(epoch_losses), np.mean(epoch_bers), np.mean(epoch_psnrs)
+
     def run(self):
         logger.info(f"Starting training loop from epoch {self.start_epoch}...")
-        best_ber = 1.0
+        best_val_ber = 1.0
+        patience_counter = 0
+        max_patience = 15
         
         for epoch in range(self.start_epoch, self.config.epochs + 1):
             avg_loss, avg_ber, avg_psnr = self.train_epoch(epoch)
             
-            # Epoch Level Logging
-            logger.info(f"Epoch {epoch} Summary | Loss: {avg_loss:.4f} | BER: {avg_ber:.4f} | PSNR: {avg_psnr:.2f}")
+            # 1. Train Metrics
+            logger.info(f"Epoch {epoch} Train | Loss: {avg_loss:.4f} | BER: {avg_ber:.4f} | PSNR: {avg_psnr:.2f}")
             wandb.log({
-                "epoch/avg_total_loss": avg_loss,
-                "epoch/avg_bit_error_rate": avg_ber,
-                "epoch/avg_psnr": avg_psnr,
-                "epoch/learning_rate": self.optimizer.param_groups[0]['lr'],
+                "train/loss": avg_loss,
+                "train/ber": avg_ber,
+                "train/psnr": avg_psnr,
                 "epoch/num": epoch
             }, step=self.global_step)
             
-            self.scheduler.step(avg_loss)
+            # 2. Validation Metrics
+            v_loss, v_ber, v_psnr = self.validate(epoch)
+            logger.info(f"Epoch {epoch} Val   | Loss: {v_loss:.4f} | BER: {v_ber:.4f} | PSNR: {v_psnr:.2f}")
+            wandb.log({
+                "val/loss": v_loss,
+                "val/ber": v_ber,
+                "val/psnr": v_psnr,
+            }, step=self.global_step)
             
-            # Save Checkpoints
-            checkpoint_path = os.path.join(self.checkpoint_dir, f"stegadna_e{epoch}_ber{avg_ber:.4f}.pth")
+            self.scheduler.step(v_loss)
+            
+            # 3. Save Checkpoints
+            checkpoint_path = os.path.join(self.checkpoint_dir, f"stegadna_e{epoch}_ber{v_ber:.4f}.pth")
             torch.save(self.model.state_dict(), checkpoint_path)
             
-            if avg_ber < best_ber:
-                best_ber = avg_ber
-                # Global Best
+            if v_ber < best_val_ber:
+                best_val_ber = v_ber
+                patience_counter = 0
                 torch.save(self.model.state_dict(), "model/stegadna_best.pth")
-                # Tag-specific Best (for publication/run tracking)
                 tag_best_path = os.path.join(self.checkpoint_dir, "best_model.pth")
                 torch.save(self.model.state_dict(), tag_best_path)
-                logger.info(f"New Best Model Saved (BER: {best_ber:.4f}) at {tag_best_path}")
+                logger.info(f"New Best Val BER ({best_val_ber:.4f})! Saving to {tag_best_path}")
+            else:
+                patience_counter += 1
+                if patience_counter >= max_patience:
+                    logger.warning(f"Early Stopping triggered! BER has not improved for {max_patience} epochs.")
+                    break
                 
             # Log sample images
             self.log_samples(epoch)

@@ -67,21 +67,34 @@ class StegaDataset(Dataset):
 
     def _text_to_bits(self, text: str) -> torch.Tensor:
         """
-        Converts text string to a fixed-length bit vector.
-        Currently uses SHA-256 hashing to ensure uniform bit distribution for training.
-        TODO: Replace with actual Reed-Solomon encoded bitstreams from Mojo core.
+        Converts text string to a fixed-length bit vector using Reed-Solomon encoding.
+        Allows the model to correct bit flips automatically during decoding.
         """
-        # Generate a stable hash of the text
-        hash_obj = hashlib.sha256(text.encode('utf-8'))
-        digest = hash_obj.digest()
+        import reedsolo
+        # For 128 bits (16 bytes), we'll do 10 bytes payload + 6 bytes ECC.
+        # This allows correcting up to 3 full bytes of errors.
+        ecc_bytes = 6
+        payload_bytes = (self.payload_bits // 8) - ecc_bytes
+        if payload_bytes < 1:
+            payload_bytes = self.payload_bits // 8
+            ecc_bytes = 0
+            
+        text_bytes = text.encode('utf-8')[:payload_bytes].ljust(payload_bytes, b'\x00')
         
+        if ecc_bytes > 0:
+            rs = reedsolo.RSCodec(ecc_bytes)
+            encoded = rs.encode(text_bytes)
+        else:
+            encoded = text_bytes
+            
         bits = []
-        for byte in digest:
+        for byte in encoded:
+            # We enforce 8 bits per byte cleanly
             for i in range(8):
                 if len(bits) < self.payload_bits:
                     bits.append((byte >> i) & 1)
-        
-        # Pad with zeros if payload_bits > 256
+                    
+        # Pad with zeros safely if somehow shorter
         while len(bits) < self.payload_bits:
             bits.append(0)
             
@@ -106,6 +119,59 @@ class StegaDataset(Dataset):
         
         return image, payload
 
+def get_stega_dataloaders(
+    tsv_path: str, 
+    image_dir: str, 
+    batch_size: int = 32, 
+    image_size: int = 256, 
+    payload_bits: int = 64,
+    val_ratio: float = 0.1,
+    num_workers: int = 4
+) -> Tuple[DataLoader, DataLoader]:
+    """
+    Creates both Train and Validation DataLoaders.
+    """
+    dataset = StegaDataset(
+        tsv_path=tsv_path,
+        image_dir=image_dir,
+        image_size=image_size,
+        payload_bits=payload_bits
+    )
+    
+    # Split indices
+    num_samples = len(dataset)
+    indices = list(range(num_samples))
+    split = int(num_samples * (1 - val_ratio))
+    
+    import random
+    random.seed(42) # Reproducible split
+    random.shuffle(indices)
+    
+    train_indices = indices[:split]
+    val_indices = indices[split:]
+    
+    from torch.utils.data import Subset
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+    
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    return train_loader, val_loader
+
 def get_stega_dataloader(
     tsv_path: str, 
     image_dir: str, 
@@ -116,7 +182,7 @@ def get_stega_dataloader(
     num_workers: int = 4
 ) -> DataLoader:
     """
-    Helper function to instantiate the DataLoader.
+    Legacy helper for backward compatibility.
     """
     dataset = StegaDataset(
         tsv_path=tsv_path,

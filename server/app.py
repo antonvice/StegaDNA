@@ -10,10 +10,15 @@ from loguru import logger
 # Ensure src/ is in the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+from fastapi.responses import HTMLResponse, FileResponse
 from server import bridge
 from src.engines import image, audio, text
 
 app = FastAPI(title="DNA-Stamp Universal Gateway")
+
+@app.get("/", response_class=HTMLResponse)
+async def get_index():
+    return FileResponse("server/static/index.html")
 
 @app.post("/stamp/{modality}")
 async def stamp_media(
@@ -33,11 +38,15 @@ async def stamp_media(
     # 2. MODALITY STEP: Route to specialized engine
     if modality == "image":
         if not file: raise HTTPException(400, "Image file required")
-        return await image.embed(file, dna_bits)
+        img_bytes = await image.embed(file, dna_bits)
+        from fastapi import Response
+        return Response(content=img_bytes, media_type="image/png")
         
     elif modality == "audio":
         if not file: raise HTTPException(400, "Audio file required")
-        return await audio.embed(file, dna_bits)
+        audio_data = await audio.embed(file, dna_bits)
+        from fastapi import Response
+        return Response(content=audio_data, media_type="audio/wav")
         
     elif modality == "text":
         if not raw_text: raise HTTPException(400, "raw_text required for text modality")
@@ -49,7 +58,7 @@ async def stamp_media(
 @app.post("/extract/{modality}")
 async def extract_media(
     modality: str,
-    file: UploadFile = File(None),
+    file: UploadFile,
     raw_text: str = Form(None)
 ):
     """

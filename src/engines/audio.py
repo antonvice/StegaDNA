@@ -1,4 +1,5 @@
 import torch
+import os
 import torchaudio
 from src.models.audio_engine import AudioDNAEngine
 from loguru import logger
@@ -37,7 +38,7 @@ async def embed(file, dna_bits):
     buffer = io.BytesIO()
     torchaudio.save(buffer, stamped_audio.squeeze(0).cpu(), sample_rate, format="wav")
 
-    return {"status": "success", "modality": "audio", "data_size": buffer.getbuffer().nbytes}
+    return buffer.getvalue()
 
 async def extract(file):
     if _engine is None: return {"status": "error", "message": "Model not trained"}
