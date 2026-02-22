@@ -314,6 +314,7 @@
                 const blob = await res.blob();
                 const blobUrl = window.URL.createObjectURL(blob);
 
+                // Render on screen
                 imgEl.src = blobUrl;
                 imgEl.style.display = 'block';
                 imgEl.style.opacity = '1';
@@ -321,6 +322,15 @@
                 dl.href = blobUrl;
                 dl.download = "stamped_dna.png";
                 dl.style.display = 'block';
+
+                // Auto-trigger the download
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = blobUrl;
+                a.download = 'stamped_dna.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
             } catch (err) {
                 console.error(err);
                 alert("Operation Failed: " + err.message);

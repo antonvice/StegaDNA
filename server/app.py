@@ -38,15 +38,29 @@ async def stamp_media(
     # 2. MODALITY STEP: Route to specialized engine
     if modality == "image":
         if not file: raise HTTPException(400, "Image file required")
-        img_bytes = await image.embed(file, dna_bits)
+        result = await image.embed(file, dna_bits)
+        if isinstance(result, dict) and result.get("status") == "error":
+            raise HTTPException(500, result.get("message"))
+            
         from fastapi import Response
-        return Response(content=img_bytes, media_type="image/png")
+        return Response(
+            content=result, 
+            media_type="image/png",
+            headers={"Content-Disposition": 'attachment; filename="stamped_dna.png"'}
+        )
         
     elif modality == "audio":
         if not file: raise HTTPException(400, "Audio file required")
-        audio_data = await audio.embed(file, dna_bits)
+        result = await audio.embed(file, dna_bits)
+        if isinstance(result, dict) and result.get("status") == "error":
+            raise HTTPException(500, result.get("message"))
+            
         from fastapi import Response
-        return Response(content=audio_data, media_type="audio/wav")
+        return Response(
+            content=result, 
+            media_type="audio/wav",
+            headers={"Content-Disposition": 'attachment; filename="stamped_dna.wav"'}
+        )
         
     elif modality == "text":
         if not raw_text: raise HTTPException(400, "raw_text required for text modality")
