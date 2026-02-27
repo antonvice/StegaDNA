@@ -4,6 +4,7 @@
 
 StegaDNA is a high-performance steganography engine designed to "stamp" any medium (Images, Audio, Text) with indestructible digital signatures (DNA). It leverages a hybrid architecture combining the flexibility of **PyTorch** for neural embedding and the raw speed of **Mojo** for bit-level error correction.
 
+[RESEARCH AT WANDB](https://wandb.ai/antonvice/StegaDNA-Alpha/reports/StegaDNA--VmlldzoxNjA1ODQxNw)
 ---
 
 ## 🚀 Key Features
